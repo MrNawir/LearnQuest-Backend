@@ -1,8 +1,13 @@
+import os
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required, get_jwt_identity
+from werkzeug.utils import secure_filename
 from app import db
 from app.models.learning_path import LearningPath, Module, Resource
 from app.models.user import User
+
+UPLOAD_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), 'uploads', 'pdfs')
+os.makedirs(UPLOAD_DIR, exist_ok=True)
 
 learning_paths_bp = Blueprint('learning_paths', __name__)
 
@@ -60,7 +65,9 @@ def create_learning_path():
         difficulty=data.get('difficulty'),
         image_url=data.get('image_url'),
         xp_reward=data.get('xp_reward', 100),
-        creator_id=user_id
+        creator_id=user_id,
+        is_published=True,
+        is_approved=False
     )
     
     db.session.add(path)
@@ -130,6 +137,62 @@ def add_resource(module_id):
         'message': 'Resource added!',
         'resource': resource.to_dict()
     }), 201
+
+
+@learning_paths_bp.route('/my-paths', methods=['GET'])
+@jwt_required()
+def get_my_paths():
+    """Get all learning paths created by the current user (including unpublished)."""
+    user_id = int(get_jwt_identity())
+    paths = LearningPath.query.filter_by(creator_id=user_id).order_by(LearningPath.created_at.desc()).all()
+    result = []
+    for path in paths:
+        data = path.to_dict()
+        data['modules'] = []
+        for module in path.modules.order_by(Module.order).all():
+            mod_data = module.to_dict()
+            mod_data['resources'] = [r.to_dict() for r in module.resources.order_by(Resource.order).all()]
+            data['modules'].append(mod_data)
+        result.append(data)
+    return jsonify({'learning_paths': result}), 200
+
+
+@learning_paths_bp.route('/upload-pdf', methods=['POST'])
+@jwt_required()
+def upload_pdf():
+    """Upload a PDF file as a learning resource."""
+    if 'file' not in request.files:
+        return jsonify({'error': 'No file provided'}), 400
+
+    file = request.files['file']
+    if not file.filename or not file.filename.lower().endswith('.pdf'):
+        return jsonify({'error': 'Only PDF files are allowed'}), 400
+
+    filename = secure_filename(file.filename)
+    filepath = os.path.join(UPLOAD_DIR, filename)
+
+    # Avoid overwriting — append counter if exists
+    base, ext = os.path.splitext(filename)
+    counter = 1
+    while os.path.exists(filepath):
+        filename = f'{base}_{counter}{ext}'
+        filepath = os.path.join(UPLOAD_DIR, filename)
+        counter += 1
+
+    file.save(filepath)
+    url = f'/api/learning-paths/pdf/{filename}'
+    return jsonify({'success': True, 'url': url, 'filename': filename}), 201
+
+
+@learning_paths_bp.route('/pdf/<path:filename>', methods=['GET'])
+def serve_pdf(filename):
+    """Serve an uploaded PDF file."""
+    from flask import send_from_directory
+    safe = secure_filename(filename)
+    filepath = os.path.join(UPLOAD_DIR, safe)
+    if not os.path.exists(filepath):
+        return jsonify({'error': 'File not found'}), 404
+    return send_from_directory(UPLOAD_DIR, safe, mimetype='application/pdf')
 
 
 @learning_paths_bp.route('/search', methods=['GET'])
