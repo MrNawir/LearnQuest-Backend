@@ -54,28 +54,42 @@ The API serves a React/TypeScript single-page application and is deployed behind
 ## Architecture
 
 ```
-                                 HTTPS (Cloudflare)
-                                       |
-                                  [ Nginx ]
-                                  /        \
-                     Static Files           /api/*
-                    (React Build)             |
-                                        [ Gunicorn ]
-                                             |
-                                      [ Flask App ]
-                                      /     |     \
-                              Routes   Services   Models
-                                             |
-                                      [ PostgreSQL ]
++---------------------+
+|     Cloudflare      |   DNS, SSL, CDN
++---------------------+
+          |
+          | HTTPS
+          v
++---------------------+
+|       Nginx         |   Reverse proxy, static files, gzip
++---------------------+
+     |            |
+     | /*          | /api/*
+     v            v
+  React SPA   +---------------------+
+  (static)    |      Gunicorn       |   WSGI server (port 5000)
+              +---------------------+
+                       |
+                       v
+              +---------------------+
+              |     Flask App       |
+              |  Routes > Services  |
+              |  Models > ORM       |
+              +---------------------+
+                       |
+                       v
+              +---------------------+
+              |    PostgreSQL 16    |
+              +---------------------+
 ```
 
 **Request lifecycle:**
 
-1. Client sends HTTPS request to `learnquest.qzz.io`
-2. Cloudflare terminates public TLS, forwards to origin over Full SSL
-3. Nginx routes `/api/*` to Gunicorn (port 5000), serves static frontend for all other paths
-4. Flask processes the request through JWT middleware, route handlers, service logic, and ORM queries
-5. Response returns as JSON with appropriate status codes
+1. Client sends HTTPS request to `learnquest.qzz.io`.
+2. Cloudflare terminates public TLS and forwards to origin over Full SSL.
+3. Nginx routes `/api/*` to Gunicorn (port 5000) and serves static frontend for all other paths.
+4. Flask processes the request through JWT middleware, route handlers, service logic, and ORM queries.
+5. Response returns as JSON with appropriate status codes.
 
 ---
 
@@ -197,21 +211,21 @@ CORS_ORIGINS=https://learnquest.qzz.io
 
 ```
 users
-  |-- learning_paths (creator_id)
-  |     |-- modules
-  |     |     |-- resources
-  |     |     |-- quizzes
-  |     |           |-- questions
-  |     |-- enrollments (user_progress)
-  |-- user_badges
-  |-- resource_completions
-  |-- quiz_attempts
-  |-- comments
-  |-- reports
-  |-- notifications
+ ├── learning_paths (via creator_id)
+ │    ├── modules
+ │    │    ├── resources
+ │    │    └── quizzes
+ │    │         └── questions
+ │    └── enrollments (user_progress)
+ ├── user_badges
+ ├── resource_completions
+ ├── quiz_attempts
+ ├── comments
+ ├── reports
+ └── notifications
 
-badges, achievements, challenges (platform-wide)
-leaderboard (materialized from user XP)
+badges, achievements, challenges  ← platform-wide tables
+leaderboard                       ← materialized from user XP
 ```
 
 ### Models
@@ -362,18 +376,11 @@ The API uses **JSON Web Tokens (JWT)** for stateless authentication.
 
 **Role hierarchy:**
 
-```
-Admin
-  |-- Can manage all users, approve/reject content, view platform stats
-  |-- Cannot be assigned via API (only direct DB or existing admin)
-  |
-Contributor
-  |-- Can create learning paths, upload resources
-  |-- Inherits all Learner capabilities
-  |
-Learner (default)
-  |-- Can enroll, complete lessons, earn XP/badges, participate in discussions
-```
+| Role | Inherits | Capabilities |
+|------|----------|-------------|
+| **Admin** | Contributor + Learner | Manage all users, approve/reject content, view platform stats. Cannot be assigned via API. |
+| **Contributor** | Learner | Create learning paths, upload PDF resources, manage own content. |
+| **Learner** | -- | Enroll in paths, complete lessons, earn XP and badges, participate in discussions. Default role for new users. |
 
 ---
 
@@ -423,47 +430,46 @@ Global rankings computed from user XP, filterable by `weekly` or `all_time` peri
 
 ```
 LearnQuest-Backend/
-|
-|-- app/
-|   |-- __init__.py              # App factory, extension init, blueprint registration
-|   |-- models/
-|   |   |-- user.py              # User model (roles, XP, streaks, status)
-|   |   |-- learning_path.py     # LearningPath, Module, Resource models
-|   |   |-- gamification.py      # Badge, UserBadge, Achievement, Challenge, Leaderboard
-|   |   |-- quiz.py              # Quiz, Question, QuizAttempt
-|   |   |-- progress.py          # UserProgress, ResourceCompletion
-|   |   |-- comment.py           # Comment (threaded replies, soft-delete)
-|   |   |-- notification.py      # Notification model
-|   |   +-- report.py            # Report model for content moderation
-|   |
-|   |-- routes/
-|   |   |-- auth.py              # /api/auth/* -- registration, login, token
-|   |   |-- users.py             # /api/users/* -- profiles, stats
-|   |   |-- learning_paths.py    # /api/learning-paths/* -- CRUD, search, PDF upload
-|   |   |-- resources.py         # /api/resources/* -- resource management, downloads
-|   |   |-- gamification.py      # /api/gamification/* -- badges, leaderboard, XP, streaks
-|   |   |-- quizzes.py           # /api/quizzes/* -- quiz CRUD, submission, scoring
-|   |   |-- progress.py          # /api/progress/* -- enrollment, completion tracking
-|   |   |-- comments.py          # /api/comments/* -- threaded discussions
-|   |   +-- admin.py             # /api/admin/* -- stats, approvals, user management
-|   |
-|   |-- services/
-|   |   |-- streak_service.py    # Streak calculation and bonus logic
-|   |   +-- leaderboard_service.py # Leaderboard computation and caching
-|   |
-|   +-- utils/                   # Shared decorators and helper functions
-|
-|-- uploads/
-|   +-- pdfs/                    # Uploaded PDF learning resources
-|
-|-- tests/
-|   +-- test_admin.py            # Admin endpoint test suite
-|
-|-- seed_data.py                 # Database seeding (users, paths, badges, quizzes)
-|-- run.py                       # Development server entry point
-|-- wsgi.py                      # Production WSGI entry point (Gunicorn)
-|-- Pipfile                      # Python dependency manifest
-+-- .env                         # Environment configuration (not committed)
+├── app/
+│   ├── __init__.py              # App factory, extension init, blueprint registration
+│   ├── models/
+│   │   ├── user.py              # User model (roles, XP, streaks, status)
+│   │   ├── learning_path.py     # LearningPath, Module, Resource models
+│   │   ├── gamification.py      # Badge, UserBadge, Achievement, Challenge, Leaderboard
+│   │   ├── quiz.py              # Quiz, Question, QuizAttempt
+│   │   ├── progress.py          # UserProgress, ResourceCompletion
+│   │   ├── comment.py           # Comment (threaded replies, soft-delete)
+│   │   ├── notification.py      # Notification model
+│   │   └── report.py            # Report model for content moderation
+│   │
+│   ├── routes/
+│   │   ├── auth.py              # /api/auth/* -- registration, login, token
+│   │   ├── users.py             # /api/users/* -- profiles, stats
+│   │   ├── learning_paths.py    # /api/learning-paths/* -- CRUD, search, PDF upload
+│   │   ├── resources.py         # /api/resources/* -- resource management, downloads
+│   │   ├── gamification.py      # /api/gamification/* -- badges, leaderboard, XP, streaks
+│   │   ├── quizzes.py           # /api/quizzes/* -- quiz CRUD, submission, scoring
+│   │   ├── progress.py          # /api/progress/* -- enrollment, completion tracking
+│   │   ├── comments.py          # /api/comments/* -- threaded discussions
+│   │   └── admin.py             # /api/admin/* -- stats, approvals, user management
+│   │
+│   ├── services/
+│   │   ├── streak_service.py    # Streak calculation and bonus logic
+│   │   └── leaderboard_service.py # Leaderboard computation and caching
+│   │
+│   └── utils/                   # Shared decorators and helper functions
+│
+├── uploads/
+│   └── pdfs/                    # Uploaded PDF learning resources
+│
+├── tests/
+│   └── test_admin.py            # Admin endpoint test suite
+│
+├── seed_data.py                 # Database seeding (users, paths, badges, quizzes)
+├── run.py                       # Development server entry point
+├── wsgi.py                      # Production WSGI entry point (Gunicorn)
+├── Pipfile                      # Python dependency manifest
+└── .env                         # Environment configuration (not committed)
 ```
 
 ---
@@ -474,17 +480,21 @@ The production environment runs on a Debian VPS with the following stack:
 
 ```
 Cloudflare (DNS + Proxy + SSL)
-       |
+        │
+        v
 Nginx (reverse proxy, TLS origin cert, static files)
-       |
+        │
+        v
 Gunicorn (WSGI, systemd service: learnquest-api)
-       |
+        │
+        v
 Flask Application
-       |
+        │
+        v
 PostgreSQL 16
 ```
 
-### Production commands
+### Production Commands
 
 ```bash
 # Restart the API service
@@ -500,13 +510,15 @@ sudo journalctl -u learnquest-api -f
 sudo systemctl status learnquest-api
 ```
 
-### Nginx configuration highlights
+### Nginx Configuration
 
-- `/api/*` proxied to `127.0.0.1:5000`
-- All other routes serve the React SPA with `try_files $uri /index.html`
-- `client_max_body_size 20M` for PDF uploads
-- Gzip compression on text, CSS, JSON, and JavaScript
-- 30-day cache headers on static assets
+| Directive | Value | Purpose |
+|-----------|-------|--------|
+| `proxy_pass` | `http://127.0.0.1:5000` | Forward `/api/*` requests to Flask |
+| `try_files` | `$uri $uri/ /index.html` | SPA fallback for client-side routing |
+| `client_max_body_size` | `20M` | Allow PDF uploads up to 20 MB |
+| `gzip` | `on` | Compress text, CSS, JSON, and JavaScript |
+| `expires` | `30d` | Cache headers on static assets |
 
 ---
 
