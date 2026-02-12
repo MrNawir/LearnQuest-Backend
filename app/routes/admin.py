@@ -41,6 +41,15 @@ def get_stats():
     week_ago = datetime.utcnow() - timedelta(days=7)
     new_users_week = User.query.filter(User.created_at >= week_ago).count()
 
+    # Active learners today
+    today_start = datetime.utcnow().replace(hour=0, minute=0, second=0, microsecond=0)
+    active_today = User.query.filter(User.last_active >= today_start).count()
+
+    # User growth percent
+    two_weeks_ago = datetime.utcnow() - timedelta(days=14)
+    prev_week_users = User.query.filter(User.created_at >= two_weeks_ago, User.created_at < week_ago).count()
+    growth_percent = round(((new_users_week - prev_week_users) / max(prev_week_users, 1)) * 100)
+
     return jsonify({
         'success': True,
         'data': {
@@ -48,11 +57,14 @@ def get_stats():
             'total_learners': total_learners,
             'total_contributors': total_contributors,
             'total_paths': total_paths,
+            'total_learning_paths': total_paths,
             'published_paths': published_paths,
             'pending_approvals': pending_paths,
             'total_resources': total_resources,
             'active_challenges': active_challenges,
-            'new_users_this_week': new_users_week
+            'new_users_this_week': new_users_week,
+            'active_learners_today': active_today,
+            'user_growth_percent': growth_percent
         }
     }), 200
 
@@ -69,8 +81,12 @@ def get_pending_paths():
     for path in paths:
         data = path.to_dict()
         creator = User.query.get(path.creator_id)
-        data['creator_name'] = creator.username if creator else 'Unknown'
-        data['creator_email'] = creator.email if creator else ''
+        data['creator'] = {
+            'username': creator.username if creator else 'Unknown',
+            'email': creator.email if creator else '',
+            'id': creator.id if creator else None
+        }
+        data['modules_count'] = path.modules.count() if path.modules else 0
         result.append(data)
 
     return jsonify({
@@ -175,8 +191,8 @@ def change_user_role(user_id):
     data = request.get_json()
     new_role = data.get('role')
 
-    if new_role not in ['learner', 'contributor', 'admin']:
-        return jsonify({'error': 'Invalid role. Must be learner, contributor, or admin'}), 400
+    if new_role not in ['learner', 'contributor']:
+        return jsonify({'error': 'Invalid role. Must be learner or contributor'}), 400
 
     user.role = new_role
     db.session.commit()

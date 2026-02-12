@@ -10,7 +10,15 @@ learning_paths_bp = Blueprint('learning_paths', __name__)
 @learning_paths_bp.route('/', methods=['GET'])
 def get_learning_paths():
     paths = LearningPath.query.filter_by(is_published=True).all()
-    return jsonify({'learning_paths': [path.to_dict() for path in paths]}), 200
+    result = []
+    for path in paths:
+        data = path.to_dict()
+        creator = User.query.get(path.creator_id)
+        if creator:
+            data['creator_name'] = creator.username
+            data['creator_avatar'] = creator.avatar_url
+        result.append(data)
+    return jsonify({'learning_paths': result}), 200
 
 
 @learning_paths_bp.route('/<int:path_id>', methods=['GET'])
@@ -20,6 +28,10 @@ def get_learning_path(path_id):
         return jsonify({'error': 'Learning path not found'}), 404
     
     path_data = path.to_dict()
+    creator = User.query.get(path.creator_id)
+    if creator:
+        path_data['creator_name'] = creator.username
+        path_data['creator_avatar'] = creator.avatar_url
     modules_list = []
     for module in path.modules.order_by(Module.order).all():
         mod_data = module.to_dict()
