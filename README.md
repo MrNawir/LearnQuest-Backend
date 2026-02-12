@@ -13,7 +13,13 @@
 
 [Live Demo](https://learnquest.qzz.io) -- [Frontend Repo](https://github.com/MrNawir/LearnQuest-Frontend) -- [API Reference](#api-reference)
 
-</div>
+## Team Members — Group 7
+- **Ibrahim Abdu** — Project Leader, Backend Architecture & Integration
+- **Bradley Murimi** — Backend Developer Lead(Auth & Gamification)
+- **Joyce Njogu** — Frontend Developer Lead
+- **Julius Mutinda** — Frontend Developer (Auth & Learning)
+- **Ephrahim Otieno** — Full Stack Developer (Community Features)
+- **Craig Omore** — Full Stack Developer (Content & Admin)
 
 ---
 
